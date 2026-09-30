@@ -89,7 +89,7 @@ def rows(table:str,x_api_key:Optional[str]=Header(None)):
     if not table.replace("_","").isalnum(): raise HTTPException(400,"Invalid table")
     with db() as c: return {"rows":c.execute(f'SELECT * FROM "{table}" LIMIT 500').fetchall()}
 @app.post("/api/tables/{table}/rows")
-def insert_row(table:str,r:TableRow,x_api_key:Optional[str]=Header(None)):
+async def insert_row(table:str,r:TableRow,x_api_key:Optional[str]=Header(None)):
     check_key(x_api_key)
     if not table.replace("_","").isalnum() or not r.data: raise HTTPException(400,"Invalid request")
     cols=list(r.data); vals=list(r.data.values())
@@ -101,7 +101,7 @@ def insert_row(table:str,r:TableRow,x_api_key:Optional[str]=Header(None)):
 @app.post("/api/storage/{bucket}")
 async def upload(bucket:str,file:UploadFile=File(...),x_api_key:Optional[str]=Header(None)):
     check_key(x_api_key); fid=str(uuid.uuid4()); path=STORAGE_DIR/bucket; path.mkdir(parents=True,exist_ok=True)
-    target=path/fid+"_"+Path(file.filename or "file").name
+    target=path/(fid+"_"+Path(file.filename or "file").name)
     data=await file.read(); target.write_bytes(data)
     with db() as c: c.execute("INSERT INTO files(id,bucket,path,size,content_type) VALUES(%s,%s,%s,%s,%s)",(fid,bucket,target.name,len(data),file.content_type)); c.commit()
     return {"id":fid,"bucket":bucket,"path":target.name,"size":len(data)}
