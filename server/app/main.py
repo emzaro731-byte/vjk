@@ -22,6 +22,10 @@ app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_
 class Auth(BaseModel): email:EmailStr; password:str
 class TableRow(BaseModel): data:dict
 class Project(BaseModel): name:str
+class KeyCreate(BaseModel): name:str
+class TableCreate(BaseModel): name:str
+class RowDelete(BaseModel): column:str; value:str
+class RowUpdate(BaseModel): key_column:str; key_value:str; data:dict
 
 def db():
     return psycopg.connect(DATABASE_URL,row_factory=dict_row)
@@ -77,6 +81,28 @@ def create_project(p:Project,x_api_key:Optional[str]=Header(None)):
     with db() as c: c.execute("INSERT INTO projects(id,name) VALUES(%s,%s)",(pid,p.name)); c.commit()
     return {"id":str(pid),"name":p.name}
 
+@app.post("/api/keys")
+def create_key(k:KeyCreate,x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key); raw="vjk_"+secrets.token_urlsafe(32); h=hashlib.sha256(raw.encode()).hexdigest(); kid=uuid.uuid4()
+    with db() as c: c.execute("INSERT INTO api_keys(id,name,key_hash,key_prefix) VALUES(%s,%s,%s,%s)",(kid,k.name,h,raw[:12])); c.commit()
+    return {"id":str(kid),"name":k.name,"key":raw,"key_prefix":raw[:12]}
+@app.get("/api/keys")
+def list_keys(x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key)
+    with db() as c:return {"keys":c.execute("SELECT id,name,key_prefix,created_at FROM api_keys ORDER BY created_at DESC").fetchall()}
+@app.delete("/api/keys/{key_id}")
+def revoke_key(key_id:str,x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key)
+    with db() as c:c.execute("DELETE FROM api_keys WHERE id=%s",(key_id,)); c.commit()
+    return {"revoked":True}
+@app.post("/api/tables")
+def create_table(t:TableCreate,x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key)
+    if not t.name.replace("_","").isalnum(): raise HTTPException(400,"Invalid table name")
+    with db() as c:
+        c.execute(f'CREATE TABLE IF NOT EXISTS "{t.name}" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT now())'); c.commit()
+    return {"table":t.name}
+
 @app.get("/api/tables")
 def tables(x_api_key:Optional[str]=Header(None)):
     check_key(x_api_key)
@@ -97,6 +123,23 @@ async def insert_row(table:str,r:TableRow,x_api_key:Optional[str]=Header(None)):
     with db() as c: out=c.execute(q,vals).fetchone(); c.commit()
     await_broadcast({"type":"row_inserted","table":table,"row":out})
     return out
+
+@app.put("/api/tables/{table}/rows")
+def update_row(table:str,r:RowUpdate,x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key)
+    if not table.replace("_","").isalnum() or not r.data: raise HTTPException(400,"Invalid request")
+    sets=", ".join('"'+k.replace('"','')+'"=%s' for k in r.data)
+    vals=list(r.data.values())+[r.key_value]
+    with db() as c:
+        out=c.execute(f'UPDATE "{table}" SET {sets} WHERE "{r.key_column}"=%s RETURNING *',vals).fetchone(); c.commit()
+    if not out: raise HTTPException(404,"Row not found")
+    return out
+@app.delete("/api/tables/{table}/rows")
+def delete_row(table:str,r:RowDelete,x_api_key:Optional[str]=Header(None)):
+    check_key(x_api_key)
+    if not table.replace("_","").isalnum(): raise HTTPException(400,"Invalid table")
+    with db() as c:c.execute(f'DELETE FROM "{table}" WHERE "{r.column}"=%s',(r.value,)); c.commit()
+    return {"deleted":True}
 
 @app.post("/api/storage/{bucket}")
 async def upload(bucket:str,file:UploadFile=File(...),x_api_key:Optional[str]=Header(None)):
