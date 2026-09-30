@@ -8,4 +8,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: pip install -r server/requirements.txt
       - run: python -m compileall server/app
+      - run: docker build -t vjk-api ./server
