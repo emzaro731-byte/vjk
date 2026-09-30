@@ -13,7 +13,7 @@ from passlib.context import CryptContext
 
 DATABASE_URL=os.getenv("DATABASE_URL","postgresql://vjk:change-me@postgres:5432/vjk")
 JWT_SECRET=os.getenv("JWT_SECRET","change-this-in-production")
-MASTER_API_KEY=os.getenv("API_KEY","vjk-dev-key")
+MASTER_API_KEY=os.getenv("API_KEY","")
 STORAGE_DIR=Path(os.getenv("STORAGE_DIR","/data/storage")); STORAGE_DIR.mkdir(parents=True,exist_ok=True)
 pwd=CryptContext(schemes=["bcrypt"],deprecated="auto")
 app=FastAPI(title="VJK",version="1.0.0")
@@ -33,7 +33,7 @@ def init_db():
     with db() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS users(id UUID PRIMARY KEY,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT now());
         CREATE TABLE IF NOT EXISTS api_keys(id UUID PRIMARY KEY,name TEXT NOT NULL,key_hash TEXT UNIQUE NOT NULL,key_prefix TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT now());
-        CREATE TABLE IF NOT EXISTS projects(id UUID PRIMARY KEY,name TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT now());
+        CREATE TABLE IF NOT EXISTS projects(id UUID PRIMARY KEY,name TEXT NOT NULL,anon_key TEXT UNIQUE NOT NULL,created_at TIMESTAMPTZ DEFAULT now());
         CREATE TABLE IF NOT EXISTS files(id UUID PRIMARY KEY,bucket TEXT NOT NULL,path TEXT NOT NULL,size BIGINT NOT NULL,content_type TEXT,created_at TIMESTAMPTZ DEFAULT now(),UNIQUE(bucket,path));""")
         c.execute("SELECT 1 FROM api_keys LIMIT 1")
         if c.fetchone() is None:
@@ -74,12 +74,12 @@ def login(a:Auth,x_api_key:Optional[str]=Header(None)):
 @app.get("/api/projects")
 def projects(x_api_key:Optional[str]=Header(None)):
     check_key(x_api_key)
-    with db() as c: return {"projects":c.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()}
+    with db() as c: return {"projects":c.execute("SELECT id,name,created_at FROM projects ORDER BY created_at DESC").fetchall()}
 @app.post("/api/projects")
 def create_project(p:Project,x_api_key:Optional[str]=Header(None)):
-    check_key(x_api_key); pid=uuid.uuid4()
-    with db() as c: c.execute("INSERT INTO projects(id,name) VALUES(%s,%s)",(pid,p.name)); c.commit()
-    return {"id":str(pid),"name":p.name}
+    check_key(x_api_key); pid=uuid.uuid4(); project_key="vjk_"+secrets.token_urlsafe(32)
+    with db() as c: c.execute("INSERT INTO projects(id,name,anon_key) VALUES(%s,%s,%s)",(pid,p.name,project_key)); c.commit()
+    return {"id":str(pid),"name":p.name,"anon_key":project_key}
 
 @app.post("/api/keys")
 def create_key(k:KeyCreate,x_api_key:Optional[str]=Header(None)):
