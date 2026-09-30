@@ -2,7 +2,7 @@ services:
   - type: web
     name: vjk-api
     runtime: docker
-    dockerfilePath: ./server/Dockerfile
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: true
     envVars:
