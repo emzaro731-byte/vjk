@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vjk
+      POSTGRES_USER: vjk
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  api:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://vjk:change-me@postgres:5432/vjk
+      JWT_SECRET: change-this-in-production
+      API_KEY: vjk-dev-key
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+volumes:
+  postgres_data:
